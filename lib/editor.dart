@@ -27,10 +27,16 @@ Future<void> editRecord(
   Record? record,
   required List<Kind> kinds,
   required DateTime date,
+  TimeRange? initialTime,
 }) => Navigator.of(context, rootNavigator: true).push<void>(
   MaterialPageRoute(
     fullscreenDialog: true,
-    builder: (_) => _Editor(record: record, kinds: kinds, date: date),
+    builder: (_) => _Editor(
+      record: record,
+      kinds: kinds,
+      date: date,
+      initialTime: initialTime,
+    ),
   ),
 );
 
@@ -39,11 +45,13 @@ class _Editor extends ConsumerStatefulWidget {
     required this.record,
     required this.kinds,
     required this.date,
+    required this.initialTime,
   });
 
   final Record? record;
   final List<Kind> kinds;
   final DateTime date;
+  final TimeRange? initialTime;
 
   @override
   ConsumerState<_Editor> createState() => _EditorState();
@@ -55,7 +63,14 @@ class _EditorState extends ConsumerState<_Editor> {
   late final _target = TextEditingController(
     text: (widget.record?.target ?? 1).toString(),
   );
-  late final _notes = TextEditingController(text: widget.record?.notes);
+  late final _start = TextEditingController(
+    text: _initialTime == null ? '' : minuteLabel(_initialTime!.start),
+  );
+  late final _end = TextEditingController(
+    text: _initialTime == null ? '' : minuteLabel(_initialTime!.end),
+  );
+  TimeRange? get _initialTime => widget.record?.timeRange ?? widget.initialTime;
+  late bool _timed = _initialTime != null;
   late final _amount = TextEditingController(
     text: widget.record == null || !widget.record!.kind.isMoney
         ? ''
@@ -92,7 +107,8 @@ class _EditorState extends ConsumerState<_Editor> {
   @override
   void dispose() {
     _title.dispose();
-    _notes.dispose();
+    _start.dispose();
+    _end.dispose();
     _target.dispose();
     _amount.dispose();
     super.dispose();
@@ -137,7 +153,10 @@ class _EditorState extends ConsumerState<_Editor> {
           kind: _kind,
           date: _date,
           title: _title.text.trim(),
-          notes: _notes.text.trim(),
+          notes: widget.record?.notes ?? '',
+          timeRange: _kind.canSchedule && _timed
+              ? (start: parseMinute(_start.text)!, end: parseMinute(_end.text)!)
+              : null,
           area: _area,
           checked: widget.record?.checked ?? {},
           target: _kind == Kind.goal ? int.parse(_target.text.trim()) : 1,
@@ -161,6 +180,18 @@ class _EditorState extends ConsumerState<_Editor> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  String? _validateStart(String? value) {
+    final minute = parseMinute(value ?? '');
+    return minute == null || minute == minutesPerDay ? 'Укажи время' : null;
+  }
+
+  String? _validateEnd(String? value) {
+    final end = parseMinute(value ?? '');
+    if (end == null) return 'Укажи время';
+    final start = parseMinute(_start.text);
+    return start != null && end <= start ? 'Позже начала' : null;
   }
 
   Future<void> _pickPhoto() async {
@@ -411,6 +442,60 @@ class _EditorState extends ConsumerState<_Editor> {
                               ? 'Введи положительную сумму'
                               : null,
                         ),
+                      if (_kind.canSchedule) ...[
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Время в расписании'),
+                          value: _timed,
+                          onChanged: _busy
+                              ? null
+                              : (value) => setState(() {
+                                  _timed = value;
+                                  if (value && _start.text.isEmpty) {
+                                    final now = TimeOfDay.now();
+                                    final start =
+                                        _date == dayOnly(DateTime.now())
+                                        ? now.hour * 60 + now.minute
+                                        : 9 * 60;
+                                    _start.text = minuteLabel(start);
+                                    _end.text = minuteLabel(
+                                      (start + 30).clamp(1, minutesPerDay),
+                                    );
+                                  }
+                                }),
+                        ),
+                        if (_timed)
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _start,
+                                  enabled: !_busy,
+                                  keyboardType: TextInputType.datetime,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Начало',
+                                    hintText: '08:07',
+                                  ),
+                                  validator: _validateStart,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _end,
+                                  enabled: !_busy,
+                                  keyboardType: TextInputType.datetime,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Конец',
+                                    hintText: '08:08',
+                                  ),
+                                  validator: _validateEnd,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
                       if (_kind.isPlan)
                         Row(
                           children: [
@@ -453,14 +538,6 @@ class _EditorState extends ConsumerState<_Editor> {
                               ),
                           ],
                         ),
-                      TextFormField(
-                        controller: _notes,
-                        enabled: !_busy,
-                        minLines: 3,
-                        maxLines: 9,
-                        textCapitalization: TextCapitalization.sentences,
-                        decoration: const InputDecoration(labelText: 'Заметки'),
-                      ),
                       if (!_kind.isPlan && !_kind.isMoney) ...[
                         if (_photoLoading) const LinearProgressIndicator(),
                         if (_photoFailed)

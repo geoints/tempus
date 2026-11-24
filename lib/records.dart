@@ -21,6 +21,8 @@ enum Kind {
 
   bool get isPlan => index <= goal.index;
   bool get isMoney => this == income || this == expense;
+  bool get canSchedule => this == task || this == habit;
+  bool get isArchive => !isPlan && !isMoney && this != journal;
 }
 
 const areas = [
@@ -74,6 +76,25 @@ int _legacyGoalTarget(String title) {
       .clamp(1, maxGoalTarget);
 }
 
+const minutesPerDay = 24 * 60;
+typedef TimeRange = ({int start, int end});
+
+String minuteLabel(int minute) {
+  final hour = (minute ~/ 60).toString().padLeft(2, '0');
+  final minuteOfHour = (minute % 60).toString().padLeft(2, '0');
+  return '$hour:$minuteOfHour';
+}
+
+int? parseMinute(String text) {
+  final value = text.trim();
+  final match = RegExp(r'^(\d{1,2}):?(\d{2})$').firstMatch(value);
+  if (match == null) return null;
+  final hour = int.parse(match.group(1)!);
+  final minute = int.parse(match.group(2)!);
+  if (minute > 59 || hour > 24 || (hour == 24 && minute != 0)) return null;
+  return hour * 60 + minute;
+}
+
 DateTime dayOnly(DateTime date) => DateTime(date.year, date.month, date.day);
 DateTime shiftDay(DateTime date, int days) =>
     DateTime(date.year, date.month, date.day + days);
@@ -98,6 +119,7 @@ class Record {
     this.weekdays = const {},
     this.amount = 0,
     this.reminder,
+    this.timeRange,
     this.photo,
     this.hasPhoto = false,
     this.target = 1,
@@ -114,6 +136,7 @@ class Record {
   final Set<int> weekdays;
   final int amount;
   final int? reminder;
+  final TimeRange? timeRange;
   final String? photo;
   final bool hasPhoto;
   final int target;
@@ -181,6 +204,10 @@ class Record {
     'weekdays': weekdays.toList(),
     'amount': amount,
     'reminder': reminder,
+    if (timeRange case final TimeRange range) ...{
+      'startMinute': range.start,
+      'endMinute': range.end,
+    },
     'photo': photo,
     if (kind == Kind.goal) 'target': target,
     if (kind == Kind.goal) 'sessions': sessions,
@@ -199,6 +226,16 @@ class Record {
     final weekdays = (json['weekdays'] as List).cast<int>().toSet();
     final checked = (json['checked'] as List).cast<String>().toSet();
     final reminder = json['reminder'] as int?;
+    final startMinute = json['startMinute'] as int?;
+    final endMinute = json['endMinute'] as int?;
+    final hasTime = startMinute != null || endMinute != null;
+    final validTime =
+        startMinute != null &&
+        endMinute != null &&
+        kind.canSchedule &&
+        startMinute >= 0 &&
+        endMinute <= minutesPerDay &&
+        startMinute < endMinute;
     final amount = json['amount'] as int;
     final area = _recordArea(json['area'] as String, title, kind);
     final target = kind == Kind.goal
@@ -228,6 +265,7 @@ class Record {
         dateText != dayKey(date) ||
         date.year < 1900 ||
         date.year > 2100 ||
+        (hasTime && !validTime) ||
         target < 1 ||
         target > maxGoalTarget ||
         sessions.length > maxGoalTarget ||
@@ -255,12 +293,13 @@ class Record {
       kind: kind,
       title: title,
       date: date,
-      notes: json['notes'] as String,
+      notes: json['notes'] as String? ?? '',
       area: area,
       checked: checked,
       weekdays: weekdays,
       amount: amount,
       reminder: reminder,
+      timeRange: validTime ? (start: startMinute, end: endMinute) : null,
       photo: photo,
       hasPhoto: hasPhoto || photo != null,
       target: target,
@@ -334,7 +373,7 @@ class ProgressSummary {
           case Kind.expense:
             expense += row.amount;
           default:
-            archive++;
+            if (row.kind.isArchive) archive++;
         }
       }
     }

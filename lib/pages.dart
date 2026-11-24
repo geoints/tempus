@@ -64,6 +64,8 @@ class RecordTile extends ConsumerWidget {
       if (showDate) shortDate(row.date),
       row.kind.label,
       if (row.area != 'Личное') row.area,
+      if (row.timeRange case final TimeRange range)
+        '${minuteLabel(range.start)}–${minuteLabel(range.end)}',
       if (row.reminder case final int time)
         if (row.kind.isPlan)
           TimeOfDay(hour: time ~/ 60, minute: time % 60).format(context),
@@ -112,8 +114,6 @@ class RecordTile extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(detail, style: const TextStyle(color: muted, fontSize: 12)),
-          if (showDate && row.notes.isNotEmpty)
-            Text(row.notes, maxLines: 1, overflow: TextOverflow.ellipsis),
         ],
       ),
       trailing: row.kind.isMoney
@@ -132,9 +132,7 @@ class RecordTile extends ConsumerWidget {
 }
 
 const planKinds = [Kind.task, Kind.habit, Kind.goal];
-final archiveKinds = Kind.values
-    .where((kind) => !kind.isPlan && !kind.isMoney)
-    .toList();
+final archiveKinds = Kind.values.where((kind) => kind.isArchive).toList();
 const moneyKinds = [Kind.income, Kind.expense];
 
 List<Record> plansFor(List<Record> rows, DateTime date) =>
@@ -144,7 +142,11 @@ List<Record> plansFor(List<Record> rows, DateTime date) =>
               row.kind.isPlan && row.kind != Kind.goal && row.occursOn(date),
         )
         .toList()
-      ..sort((a, b) => (a.reminder ?? 1440).compareTo(b.reminder ?? 1440));
+      ..sort(
+        (a, b) => (a.timeRange?.start ?? a.reminder ?? minutesPerDay).compareTo(
+          b.timeRange?.start ?? b.reminder ?? minutesPerDay,
+        ),
+      );
 
 class TodayPage extends StatefulWidget {
   const TodayPage({super.key});
@@ -254,10 +256,9 @@ class _TodayPageState extends State<TodayPage> {
             ),
           ),
           OutlinedButton.icon(
-            onPressed: () =>
-                editRecord(context, kinds: const [Kind.journal], date: today),
-            icon: const Icon(Icons.edit_note_rounded),
-            label: const Text('Запись в дневник'),
+            onPressed: () => context.go('/plan/schedule'),
+            icon: const Icon(Icons.view_timeline_outlined),
+            label: const Text('Расписание по времени'),
           ),
         ],
       );
@@ -301,6 +302,11 @@ class _PlanPageState extends State<PlanPage> {
               tooltip: 'Добавить в план',
               icon: const Icon(Icons.add),
             ),
+          ),
+          OutlinedButton.icon(
+            onPressed: () => context.go('/plan/schedule?date=${dayKey(day)}'),
+            icon: const Icon(Icons.view_timeline_outlined),
+            label: Text('Расписание на ${shortDate(day)}'),
           ),
           Surface(
             child: Column(
@@ -1044,7 +1050,7 @@ class _ArchivePageState extends State<ArchivePage> {
             ? row.kind.isMoney &&
                   row.date.year == month.year &&
                   row.date.month == month.month
-            : !row.kind.isPlan && !row.kind.isMoney,
+            : row.kind.isArchive,
       );
       final items =
           all
@@ -1052,9 +1058,7 @@ class _ArchivePageState extends State<ArchivePage> {
                 (row) =>
                     finance ||
                     ((filter == null || row.kind == filter) &&
-                        '${row.title} ${row.notes}'.toLowerCase().contains(
-                          query,
-                        )),
+                        row.title.toLowerCase().contains(query)),
               )
               .toList()
             ..sort((a, b) {

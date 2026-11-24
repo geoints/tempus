@@ -127,6 +127,38 @@ void main() {
     expect(month.completed, 3);
   });
 
+  test(
+    'Время задачи сохраняется и проверяется с точностью до минуты',
+    () async {
+      final db = TempusDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      expect(parseMinute('08:07'), 487);
+      expect(parseMinute('0808'), 488);
+      expect(parseMinute('24:00'), 1440);
+      expect(parseMinute('24:01'), isNull);
+      expect(parseMinute('08:60'), isNull);
+      final row = Record(
+        id: 1,
+        kind: Kind.task,
+        title: 'Короткое дело',
+        date: DateTime(2026, 11, 24),
+        timeRange: (start: 487, end: 488),
+      );
+      expect(
+        () => Record.fromJson({...row.toJson(), 'endMinute': 487}),
+        throwsFormatException,
+      );
+      expect(
+        () => Record.fromJson({...row.toJson(), 'endMinute': 1441}),
+        throwsFormatException,
+      );
+      await db.put(row);
+      final stored = (await db.read()).records.single;
+      expect(stored.timeRange, (start: 487, end: 488));
+      expect(stored.toggle(stored.date).timeRange, stored.timeRange);
+    },
+  );
+
   test('Годовая сводка создаётся в PDF с русским текстом', () async {
     final snapshot = Snapshot(
       records: [
@@ -175,10 +207,14 @@ void main() {
       ),
     );
     expect(find.text('TEMPUS'), findsOneWidget);
-    await tester.pump(const Duration(milliseconds: 850));
+    await tester.pump(const Duration(milliseconds: 1100));
+    expect(find.text('TEMPUS'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
     expect(find.byType(PalaceCard), findsOneWidget);
     expect(find.text('План на сегодня'), findsOneWidget);
+    expect(find.text('Запись в дневник'), findsNothing);
+    expect(find.text('Расписание по времени'), findsOneWidget);
 
     for (final (label, expected) in [
       ('План', 'Цели месяца'),
@@ -194,6 +230,7 @@ void main() {
     await tester.tap(find.widgetWithText(NavigationDestination, 'Летопись'));
     await tester.pumpAndSettle();
     expect(find.text('Вечер в театре'), findsOneWidget);
+    expect(find.text('Дневник'), findsNothing);
     await tester.tap(find.widgetWithText(NavigationDestination, 'Прогресс'));
     await tester.pumpAndSettle();
     expect(find.text('0 / 12'), findsWidgets);
@@ -219,6 +256,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Новая запись'), findsOneWidget);
     expect(find.text('Название'), findsOneWidget);
+    expect(find.text('Заметки'), findsNothing);
     await tester.enterText(
       find.byType(TextFormField).first,
       'Повторить английский',
@@ -236,6 +274,30 @@ void main() {
       ))!.records.singleWhere((row) => row.kind == Kind.task).checked,
       isNotEmpty,
     );
+    await tester.tap(find.text('Расписание по времени'));
+    await tester.pumpAndSettle();
+    expect(find.text('Расписание'), findsOneWidget);
+    await tester.tap(find.byTooltip('Показать три дня'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Показать один день'), findsOneWidget);
+    await tester.tap(find.byTooltip('Добавить дело по времени'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).at(0), 'Минутное дело');
+    await tester.enterText(find.byType(TextFormField).at(1), '08:07');
+    await tester.enterText(find.byType(TextFormField).at(2), '08:08');
+    await tester.ensureVisible(find.text('Сохранить'));
+    await tester.tap(find.text('Сохранить'));
+    await tester.pumpAndSettle();
+    expect(
+      (await tester.runAsync(
+        db.read,
+      ))!.records.singleWhere((row) => row.title == 'Минутное дело').timeRange,
+      (start: 487, end: 488),
+    );
+    await tester.tap(find.text('Дела дня · 1 без времени'));
+    await tester.pumpAndSettle();
+    expect(find.text('Минутное дело'), findsOneWidget);
+    expect(find.textContaining('08:07–08:08'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 }

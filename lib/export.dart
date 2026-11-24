@@ -27,8 +27,7 @@ Future<Uint8List> yearPdf(Snapshot snapshot, int year) async {
       snapshot.records
           .where(
             (row) =>
-                !row.kind.isPlan &&
-                !row.kind.isMoney &&
+                row.kind.isArchive &&
                 !row.date.isBefore(first) &&
                 row.date.isBefore(end),
           )

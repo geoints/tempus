@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'design.dart';
 import 'pages.dart';
 import 'profile.dart';
+import 'schedule.dart';
 import 'store.dart';
 
 void main() {
@@ -68,7 +69,23 @@ final router = GoRouter(
           ],
         ),
         StatefulShellBranch(
-          routes: [GoRoute(path: '/plan', builder: (_, _) => const PlanPage())],
+          routes: [
+            GoRoute(
+              path: '/plan',
+              builder: (_, _) => const PlanPage(),
+              routes: [
+                GoRoute(
+                  path: 'schedule',
+                  builder: (_, state) => SchedulePage(
+                    key: ValueKey(state.uri.queryParameters['date']),
+                    initialDate: DateTime.tryParse(
+                      state.uri.queryParameters['date'] ?? '',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
         StatefulShellBranch(
           routes: [
@@ -214,7 +231,7 @@ class _StartupState extends ConsumerState<_Startup> {
   void initState() {
     super.initState();
     _timer = Timer(
-      const Duration(milliseconds: 620),
+      const Duration(milliseconds: 1620),
       () => setState(() => _elapsed = true),
     );
   }
@@ -239,8 +256,8 @@ class _StartupState extends ConsumerState<_Startup> {
         IgnorePointer(
           ignoring: _revealed,
           child: AnimatedSwitcher(
-            duration: motion(context, 275),
-            reverseDuration: motion(context, 275),
+            duration: motion(context, 385),
+            reverseDuration: motion(context, 385),
             child: _revealed ? const SizedBox.shrink() : const _StartupSeal(),
           ),
         ),
@@ -257,9 +274,9 @@ class _StartupSeal extends StatelessWidget {
     color: ink,
     child: Center(
       child: TweenAnimationBuilder<double>(
-        duration: motion(context, 820),
+        duration: motion(context, 1720),
         tween: Tween(begin: 0, end: 1),
-        curve: Curves.easeInOutCubic,
+        curve: Curves.easeInOutSine,
         builder: (_, value, child) => Column(
           mainAxisSize: MainAxisSize.min,
           children: [
