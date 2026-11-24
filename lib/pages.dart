@@ -1082,36 +1082,31 @@ class _ArchivePageState extends State<ArchivePage> {
         children: [
           PageHeading(
             finance ? 'Финансы' : 'Летопись',
-            action: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (!finance)
-                  IconButton(
-                    tooltip: 'Камера TEMPUS',
-                    onPressed: () => openFilmCamera(context),
-                    icon: const Icon(Icons.photo_camera_outlined),
-                  ),
-                IconButton.filled(
-                  onPressed: () => editRecord(
-                    context,
-                    kinds: finance
-                        ? moneyKinds
-                        : filter == null
-                        ? archiveKinds
-                        : [filter!],
-                    date: finance
-                        ? (DateTime.now().year == month.year &&
-                                  DateTime.now().month == month.month
-                              ? dayOnly(DateTime.now())
-                              : month)
-                        : dayOnly(DateTime.now()),
-                  ),
-                  tooltip: 'Добавить запись',
-                  icon: const Icon(Icons.add),
-                ),
-              ],
+            action: IconButton.filled(
+              onPressed: () => editRecord(
+                context,
+                kinds: finance
+                    ? moneyKinds
+                    : filter == null
+                    ? archiveKinds
+                    : [filter!],
+                date: finance
+                    ? (DateTime.now().year == month.year &&
+                              DateTime.now().month == month.month
+                          ? dayOnly(DateTime.now())
+                          : month)
+                    : dayOnly(DateTime.now()),
+              ),
+              tooltip: 'Добавить запись',
+              icon: const Icon(Icons.add),
             ),
           ),
+          if (!finance)
+            FilledButton.tonalIcon(
+              onPressed: () => openFilmCamera(context),
+              icon: const Icon(Icons.photo_camera_outlined),
+              label: const Text('Открыть камеру'),
+            ),
           Center(
             child: SegmentedButton<bool>(
               segments: const [

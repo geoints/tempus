@@ -294,7 +294,14 @@ void main() {
     await tester.tap(find.widgetWithText(NavigationDestination, 'Летопись'));
     await tester.pumpAndSettle();
     expect(find.text('Вечер в театре'), findsOneWidget);
-    expect(find.byTooltip('Камера TEMPUS'), findsOneWidget);
+    final cameraButton = find.widgetWithText(FilledButton, 'Открыть камеру');
+    expect(cameraButton.hitTestable(), findsOneWidget);
+    await tester.tap(cameraButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Камера TEMPUS'), findsOneWidget);
+    Navigator.of(tester.element(find.text('Камера TEMPUS'))).pop();
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Вечер в театре'));
     await tester.pumpAndSettle();
     expect(find.text('Фотоальбом'), findsOneWidget);
