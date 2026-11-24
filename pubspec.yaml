@@ -1,7 +1,7 @@
 name: tempus
 description: Личный офлайн-планировщик и летопись.
 publish_to: none
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ^3.10.0
@@ -20,7 +20,6 @@ dependencies:
   timezone: ^0.10.1
   path_provider: ^2.1.5
   file_picker: ^10.3.0
-  cryptography: ^2.9.0
   pdf: 3.12.0
   intl: any
 
@@ -33,6 +32,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/DejaVu-LICENSE.txt
+    - assets/tempus-palace.jpg
   fonts:
     - family: TempusSerif
       fonts:

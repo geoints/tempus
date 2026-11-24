@@ -1,12 +1,12 @@
 import 'dart:convert';
 
-import 'package:cryptography/cryptography.dart';
 import 'package:drift/native.dart';
 // ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:tempus/design.dart';
 import 'package:tempus/export.dart';
 import 'package:tempus/main.dart';
 import 'package:tempus/records.dart';
@@ -53,68 +53,79 @@ void main() {
   });
 
   test(
-    'SQLite хранит вложение отдельно и восстанавливает записи и настройки',
+    'Версия 1.0 сохраняет записи, настройки, фото и старый прогресс',
     () async {
       final db = TempusDatabase(NativeDatabase.memory());
       addTearDown(db.close);
       final image = base64Encode([87, 24, 95]);
-      final row = Record(
-        id: 1,
-        kind: Kind.event,
-        title: 'Театр',
+      await db.settings('Асанали', '2026-08-10');
+      final oldGoal =
+          Record(
+              id: 1,
+              kind: Kind.goal,
+              title: 'Зал 12 раз в месяц',
+              date: DateTime(2026, 8, 31),
+              area: 'Спорт',
+              checked: {'2026-08-03'},
+            ).toJson()
+            ..remove('target')
+            ..remove('sessions');
+      final oldBook = Record(
+        id: 2,
+        kind: Kind.book,
+        title: 'Книга',
         date: DateTime(2026, 8, 3),
-        photo: image,
+        area: 'Творчество',
+        notes: 'Конспект',
+      ).toJson();
+      await db.customStatement(
+        'INSERT INTO records (id, payload) VALUES (?, ?)',
+        [1, jsonEncode(oldGoal)],
       );
-      await db.put(row);
-      final entry = (await db.read()).records.single;
-      expect(entry.hasPhoto, isTrue);
-      expect(entry.photo, isNull);
-      expect(await db.photo(1), image);
-      await db.settings('Асан', '2026-08-10');
-      final export = await db.read(includePhotos: true);
-      expect(export.records.single.photo, image);
-      await db.replace(const Snapshot());
-      expect((await db.read()).records, isEmpty);
-      await db.replace(export);
-      final restored = await db.read();
-      expect(restored.name, 'Асан');
-      expect(restored.history, '2026-08-10');
-      expect(restored.records.single.title, 'Театр');
-      expect(await db.photo(1), image);
+      await db.customStatement(
+        'INSERT INTO records (id, payload, photo) VALUES (?, ?, ?)',
+        [2, jsonEncode(oldBook), image],
+      );
+      final stored = await db.read();
+      expect(stored.name, 'Асанали');
+      expect(stored.history, '2026-08-10');
+      final [goal, book] = stored.records;
+      expect(goal.title, 'Зал 12 раз в месяц');
+      expect(goal.goalTitle, 'Зал');
+      expect(goal.area, 'Тренировки');
+      expect(goal.target, 12);
+      expect(goal.goalCount, 12);
+      expect(book.area, 'Чтение');
+      expect(book.notes, 'Конспект');
+      expect(book.hasPhoto, isTrue);
+      expect(book.photo, isNull);
+      expect(await db.photo(2), image);
     },
   );
 
-  test(
-    'Резервная копия принимает верный пароль и отклоняет неверный',
-    () async {
-      final row = Record(
-        id: 1,
-        kind: Kind.journal,
-        title: 'Первая запись',
-        date: DateTime(2026, 8, 1),
-        notes: 'Личные заметки',
-      );
-      final snapshot = Snapshot(records: [row]);
-      const password = 'личный-пароль';
-      final bytes = await Backup.encode(snapshot, password);
-      expect(utf8.decode(bytes), isNot(contains(row.title)));
-      final decoded = Backup.inspect(bytes);
-      expect(Backup.isEncrypted(decoded), true);
-      expect(
-        (await Backup.decode(decoded, password)).toJson(),
-        snapshot.toJson(),
-      );
-      await expectLater(
-        Backup.decode(decoded, 'неверный пароль'),
-        throwsA(isA<SecretBoxAuthenticationError>()),
-      );
-      final plain = await Backup.encode(snapshot, '');
-      expect(
-        (await Backup.decode(Backup.inspect(plain), '')).toJson(),
-        snapshot.toJson(),
-      );
-    },
-  );
+  test('Цель добавляет план по сроку и считает по дате каждой отметки', () {
+    final goal = Record(
+      id: 1,
+      kind: Kind.goal,
+      title: 'Дзюдо',
+      target: 10,
+      date: DateTime(2026, 8, 31),
+    ).withSessions(['2026-08-03', '2026-08-03', '2026-08-31']);
+    final early = ProgressSummary.between(
+      [goal],
+      DateTime(2026, 8, 1),
+      DateTime(2026, 8, 9),
+    );
+    expect(early.planned, 0);
+    expect(early.completed, 2);
+    final month = ProgressSummary.between(
+      [goal],
+      DateTime(2026, 8, 1),
+      DateTime(2026, 9, 1),
+    );
+    expect(month.planned, 10);
+    expect(month.completed, 3);
+  });
 
   test('Годовая сводка создаётся в PDF с русским текстом', () async {
     final snapshot = Snapshot(
@@ -137,7 +148,22 @@ void main() {
   ) async {
     final db = TempusDatabase(NativeDatabase.memory());
     addTearDown(db.close);
-    await tester.runAsync(db.read);
+    final today = dayOnly(DateTime.now());
+    await tester.runAsync(() async {
+      await db.put(
+        Record(
+          id: 1,
+          kind: Kind.goal,
+          title: 'Зал',
+          date: DateTime(today.year, today.month + 1, 0),
+          target: 12,
+          area: 'Тренировки',
+        ),
+      );
+      await db.put(
+        Record(id: 2, kind: Kind.event, title: 'Вечер в театре', date: today),
+      );
+    });
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(393, 852);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -148,19 +174,45 @@ void main() {
         child: const TempusApp(),
       ),
     );
+    expect(find.text('TEMPUS'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 850));
     await tester.pumpAndSettle();
+    expect(find.byType(PalaceCard), findsOneWidget);
     expect(find.text('План на сегодня'), findsOneWidget);
 
     for (final (label, expected) in [
       ('План', 'Цели месяца'),
       ('Прогресс', 'План и факт'),
       ('Летопись', 'Поиск по летописи'),
-      ('Профиль', 'Резервные копии'),
+      ('Профиль', 'Начало истории'),
     ]) {
       await tester.tap(find.widgetWithText(NavigationDestination, label));
       await tester.pumpAndSettle();
       expect(find.text(expected), findsOneWidget);
     }
+    expect(find.text('Резервные копии'), findsNothing);
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Летопись'));
+    await tester.pumpAndSettle();
+    expect(find.text('Вечер в театре'), findsOneWidget);
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Прогресс'));
+    await tester.pumpAndSettle();
+    expect(find.text('0 / 12'), findsWidgets);
+    await tester.tap(find.text('Зал'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 / 12'), findsWidgets);
+    await tester.tap(find.byTooltip('Добавить отметку: Зал'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 / 12'), findsWidgets);
+    await tester.tap(find.byTooltip('Подробнее: Зал'));
+    await tester.pumpAndSettle();
+    expect(find.text('Выполнено 2 из 12'), findsOneWidget);
+    await tester.tap(
+      find.byTooltip('Убрать одну отметку за ${shortDate(today)}'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Выполнено 1 из 12'), findsOneWidget);
+    Navigator.of(tester.element(find.text('Выполнено 1 из 12'))).pop();
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(NavigationDestination, 'Сегодня'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Добавить в план'));
@@ -179,7 +231,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('1 из 1'), findsOneWidget);
     expect(
-      (await tester.runAsync(db.read))!.records.single.checked,
+      (await tester.runAsync(
+        db.read,
+      ))!.records.singleWhere((row) => row.kind == Kind.task).checked,
       isNotEmpty,
     );
     await tester.pumpWidget(const SizedBox());

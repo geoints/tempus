@@ -1,5 +1,8 @@
+import 'dart:async';
+
 // ignore: deprecated_member_use
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -17,34 +20,45 @@ void main() {
 final router = GoRouter(
   initialLocation: '/today',
   routes: [
-    StatefulShellRoute.indexedStack(
+    StatefulShellRoute(
+      navigatorContainerBuilder: (_, shell, children) =>
+          _TabDeck(shell.currentIndex, children),
       builder: (_, _, shell) => Scaffold(
         body: SafeArea(bottom: false, child: shell),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: shell.currentIndex,
-          onDestinationSelected: (index) => shell.goBranch(index),
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.wb_twilight_outlined),
-              label: 'Сегодня',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.calendar_month_outlined),
-              label: 'План',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.query_stats_outlined),
-              label: 'Прогресс',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.auto_stories_outlined),
-              label: 'Летопись',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline),
-              label: 'Профиль',
-            ),
-          ],
+        bottomNavigationBar: DecoratedBox(
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: border)),
+          ),
+          child: NavigationBar(
+            selectedIndex: shell.currentIndex,
+            onDestinationSelected: (index) {
+              if (index != shell.currentIndex) HapticFeedback.selectionClick();
+              shell.goBranch(index);
+            },
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home_rounded),
+                label: 'Сегодня',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.calendar_month_outlined),
+                label: 'План',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.query_stats_outlined),
+                label: 'Прогресс',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.auto_stories_outlined),
+                label: 'Летопись',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.person_outline),
+                label: 'Профиль',
+              ),
+            ],
+          ),
         ),
       ),
       branches: [
@@ -112,5 +126,158 @@ class _TempusAppState extends ConsumerState<TempusApp> {
     // ignore: deprecated_member_use
     localizationsDelegates: GlobalMaterialLocalizations.delegates,
     routerConfig: router,
+    builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: _Startup(child: child ?? const SizedBox.shrink()),
+    ),
+  );
+}
+
+class _TabDeck extends StatefulWidget {
+  const _TabDeck(this.selected, this.tabs);
+
+  final int selected;
+  final List<Widget> tabs;
+
+  @override
+  State<_TabDeck> createState() => _TabDeckState();
+}
+
+class _TabDeckState extends State<_TabDeck>
+    with SingleTickerProviderStateMixin {
+  late final _motion = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 225),
+    value: 1,
+  );
+  late final _curve = CurvedAnimation(
+    parent: _motion,
+    curve: Curves.easeOutCubic,
+  );
+
+  @override
+  void didUpdateWidget(covariant _TabDeck oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selected == oldWidget.selected) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _motion.value = 1;
+    } else {
+      _motion.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _curve.dispose();
+    _motion.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      for (var i = 0; i < widget.tabs.length; i++)
+        Offstage(
+          offstage: i != widget.selected,
+          child: TickerMode(
+            enabled: i == widget.selected,
+            child: FadeTransition(
+              opacity: _curve.drive(Tween(begin: .55, end: 1)),
+              child: SlideTransition(
+                position: _curve.drive(
+                  Tween(begin: const Offset(0, .019), end: Offset.zero),
+                ),
+                child: widget.tabs[i],
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+}
+
+class _Startup extends ConsumerStatefulWidget {
+  const _Startup({required this.child});
+  final Widget child;
+
+  @override
+  ConsumerState<_Startup> createState() => _StartupState();
+}
+
+class _StartupState extends ConsumerState<_Startup> {
+  Timer? _timer;
+  bool _elapsed = false;
+  bool _revealed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(
+      const Duration(milliseconds: 620),
+      () => setState(() => _elapsed = true),
+    );
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final loading = ref.watch(
+      recordsProvider.select((state) => state.isLoading),
+    );
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (!_revealed && !loading && (_elapsed || reduceMotion)) _revealed = true;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ExcludeSemantics(excluding: !_revealed, child: widget.child),
+        IgnorePointer(
+          ignoring: _revealed,
+          child: AnimatedSwitcher(
+            duration: motion(context, 275),
+            reverseDuration: motion(context, 275),
+            child: _revealed ? const SizedBox.shrink() : const _StartupSeal(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StartupSeal extends StatelessWidget {
+  const _StartupSeal();
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: ink,
+    child: Center(
+      child: TweenAnimationBuilder<double>(
+        duration: motion(context, 820),
+        tween: Tween(begin: 0, end: 1),
+        curve: Curves.easeInOutCubic,
+        builder: (_, value, child) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TempusSeal(value),
+            const SizedBox(height: 16),
+            Opacity(opacity: (.15 + value).clamp(0, 1), child: child),
+          ],
+        ),
+        child: const Text(
+          'TEMPUS',
+          style: TextStyle(
+            color: paper,
+            fontFamily: 'TempusSerif',
+            fontSize: 29,
+            letterSpacing: 7,
+          ),
+        ),
+      ),
+    ),
   );
 }

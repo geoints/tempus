@@ -1,16 +1,17 @@
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 // ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 
 import 'records.dart';
 
-const ink = Color(0xff171513);
-const panel = Color(0xff211d19);
-const border = Color(0xff3a3128);
+const ink = Color(0xff15110f);
+const panel = Color(0xff221b16);
+const border = Color(0xff49372a);
 const paper = Color(0xfff4e9d8);
 const muted = Color(0xffbaad9d);
-const bronze = Color(0xffdcad72);
+const bronze = Color(0xffddb780);
 const sage = Color(0xffa9ba92);
 
 ThemeData tempusTheme() {
@@ -28,12 +29,25 @@ ThemeData tempusTheme() {
         outline: border,
       );
   return ThemeData(
+    splashFactory: InkRipple.splashFactory,
+    appBarTheme: const AppBarTheme(
+      backgroundColor: ink,
+      surfaceTintColor: Colors.transparent,
+    ),
+    cardColor: panel,
     colorScheme: scheme,
     scaffoldBackgroundColor: ink,
-    navigationBarTheme: const NavigationBarThemeData(
-      backgroundColor: panel,
-      indicatorColor: Color(0xff453323),
-      height: 67,
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: const Color(0xff1c1511),
+      surfaceTintColor: Colors.transparent,
+      indicatorColor: const Color(0xff493322),
+      height: 65,
+      labelTextStyle: WidgetStateProperty.resolveWith(
+        (states) => TextStyle(
+          fontSize: 11,
+          color: states.contains(WidgetState.selected) ? paper : muted,
+        ),
+      ),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
@@ -179,95 +193,210 @@ class EmptyCard extends StatelessWidget {
   );
 }
 
-class Chronograph extends StatelessWidget {
-  const Chronograph({super.key});
+const palacePhoto = 'assets/tempus-palace.jpg';
+
+Duration motion(BuildContext context, int milliseconds) =>
+    MediaQuery.disableAnimationsOf(context)
+    ? Duration.zero
+    : Duration(milliseconds: milliseconds);
+
+IconData areaIcon(String area) => switch (area) {
+  'Отношения' => Icons.favorite_border_rounded,
+  'Тренировки' => Icons.fitness_center_rounded,
+  'Развитие' => Icons.auto_awesome_outlined,
+  'Культурное развитие' => Icons.account_balance_outlined,
+  'Чтение' => Icons.menu_book_outlined,
+  'Английский' => Icons.translate_rounded,
+  'Работа' => Icons.work_outline_rounded,
+  _ => Icons.person_outline_rounded,
+};
+
+class AnimatedValue extends StatelessWidget {
+  const AnimatedValue(this.value, {this.style, super.key});
+  final String value;
+  final TextStyle? style;
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        colors: [Color(0xff281d16), Color(0xff4d3525)],
-      ),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: const Color(0xff654936)),
+  Widget build(BuildContext context) => AnimatedSwitcher(
+    duration: motion(context, 230),
+    layoutBuilder: (current, previous) => Stack(
+      alignment: Alignment.center,
+      children: [
+        ...previous.map((child) => ExcludeSemantics(child: child)),
+        ?current,
+      ],
     ),
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: Stack(
-        children: [
-          const Positioned.fill(child: CustomPaint(painter: _DialPainter())),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 25, 88, 25),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'TEMPUS',
-                  style: TextStyle(
-                    color: bronze,
-                    letterSpacing: 4,
-                    fontSize: 11,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Disciplina\nest libertas',
-                  style: TextStyle(
-                    fontFamily: 'TempusSerif',
-                    fontSize: MediaQuery.sizeOf(context).width < 360 ? 25 : 31,
-                    height: 1.12,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Дисциплина — это свобода',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-              ],
+    transitionBuilder: (child, animation) => FadeTransition(
+      opacity: animation,
+      child: ScaleTransition(
+        scale: Tween(begin: .93, end: 1.0).animate(animation),
+        child: child,
+      ),
+    ),
+    child: Text(value, key: ValueKey(value), style: style),
+  );
+}
+
+class PalaceCard extends StatelessWidget {
+  const PalaceCard({super.key});
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(22),
+    child: Stack(
+      children: [
+        Positioned.fill(
+          child: Image.asset(
+            palacePhoto,
+            fit: BoxFit.cover,
+            alignment: Alignment.topCenter,
+          ),
+        ),
+        const Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: [0, .5, 1],
+                colors: [
+                  Color(0x09000000),
+                  Color(0x1b120a06),
+                  Color(0xde120b07),
+                ],
+              ),
             ),
           ),
-        ],
-      ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 122, 14, 14),
+          child: TweenAnimationBuilder<double>(
+            duration: motion(context, 540),
+            tween: Tween(begin: 0, end: 1),
+            curve: Curves.easeOutCubic,
+            builder: (_, value, child) => Opacity(
+              opacity: value,
+              child: Transform.translate(
+                offset: Offset(0, 12 * (1 - value)),
+                child: child,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(15),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 11,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(15),
+                    color: const Color(0x71321e11),
+                    border: Border.all(color: const Color(0x50edc294)),
+                  ),
+                  child: const Column(
+                    children: [
+                      Text(
+                        'Disciplina est libertas',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: 'TempusSerif',
+                          fontSize: 21,
+                          color: paper,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Дисциплина — это свобода',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12, color: paper),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: const Color(0xff644a36)),
+              ),
+            ),
+          ),
+        ),
+      ],
     ),
   );
 }
 
-class _DialPainter extends CustomPainter {
-  const _DialPainter();
+class TempusSeal extends StatelessWidget {
+  const TempusSeal(this.progress, {super.key});
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+    painter: _SealPainter(progress),
+    size: const Size.square(104),
+  );
+}
+
+class _SealPainter extends CustomPainter {
+  const _SealPainter(this.progress);
+  final double progress;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width - 16, size.height * .48);
-    final radius = math.min(115.0, size.height * .63);
-    final line = Paint()
-      ..color = const Color(0xffa67a51)
-      ..style = PaintingStyle.stroke;
-    for (final ring in [.46, .74, .90, .96, 1.0]) {
-      line.strokeWidth = ring == 1 ? 1.2 : .6;
-      canvas.drawCircle(center, ring * radius, line);
-    }
-    for (var tick = 0; tick < 60; tick++) {
-      final angle = tick * math.pi / 30;
-      final point = Offset(math.cos(angle), math.sin(angle));
-      line.strokeWidth = tick % 5 == 0 ? 1.3 : .55;
+    final center = size.center(Offset.zero);
+    final radius = size.width * .42;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final ring = Rect.fromCircle(center: center, radius: radius);
+    paint
+      ..color = const Color(0xff5a3c28)
+      ..strokeWidth = 1;
+    canvas.drawCircle(center, radius, paint);
+    canvas.drawCircle(center, radius * .78, paint);
+    paint
+      ..color = bronze
+      ..strokeWidth = 1.4;
+    canvas.drawArc(ring, -math.pi / 2, math.pi * 2 * progress, false, paint);
+    for (var tick = 0; tick < 48; tick++) {
+      final angle = tick * math.pi / 24 - math.pi / 2;
+      final direction = Offset(math.cos(angle), math.sin(angle));
+      paint.color = tick % 4 == 0 ? bronze : border;
       canvas.drawLine(
-        center + point * radius * (tick % 5 == 0 ? .78 : .84),
-        center + point * radius * .89,
-        line,
+        center + direction * radius * .83,
+        center + direction * radius * (tick % 4 == 0 ? .94 : .89),
+        paint,
       );
     }
-    line.strokeWidth = 2;
+    paint
+      ..color = bronze
+      ..strokeWidth = 1.6;
+    final angle = -math.pi / 2 + progress * math.pi * 2;
     canvas.drawLine(
       center,
-      center + Offset(-radius * .43, -radius * .50),
-      line,
+      center + Offset(math.cos(angle), math.sin(angle)) * radius * .61,
+      paint,
     );
-    canvas.drawLine(center, center + Offset(radius * .18, -radius * .72), line);
-    canvas.drawCircle(center, 4, line);
+    canvas.drawLine(
+      center,
+      center + Offset(-radius * .34, radius * .18),
+      paint,
+    );
+    canvas.drawCircle(center, 2.6, paint);
   }
 
   @override
-  bool shouldRepaint(_DialPainter oldDelegate) => false;
+  bool shouldRepaint(_SealPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
 
 class ProgressTrack extends StatelessWidget {

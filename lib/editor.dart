@@ -52,6 +52,9 @@ class _Editor extends ConsumerStatefulWidget {
 class _EditorState extends ConsumerState<_Editor> {
   final _form = GlobalKey<FormState>();
   late final _title = TextEditingController(text: widget.record?.title);
+  late final _target = TextEditingController(
+    text: (widget.record?.target ?? 1).toString(),
+  );
   late final _notes = TextEditingController(text: widget.record?.notes);
   late final _amount = TextEditingController(
     text: widget.record == null || !widget.record!.kind.isMoney
@@ -90,6 +93,7 @@ class _EditorState extends ConsumerState<_Editor> {
   void dispose() {
     _title.dispose();
     _notes.dispose();
+    _target.dispose();
     _amount.dispose();
     super.dispose();
   }
@@ -136,6 +140,8 @@ class _EditorState extends ConsumerState<_Editor> {
           notes: _notes.text.trim(),
           area: _area,
           checked: widget.record?.checked ?? {},
+          target: _kind == Kind.goal ? int.parse(_target.text.trim()) : 1,
+          sessions: widget.record?.sessions ?? const [],
           weekdays: _kind == Kind.habit ? _days : {},
           amount: _kind.isMoney ? _minorUnits(_amount.text)! : 0,
           reminder: reminder,
@@ -258,7 +264,25 @@ class _EditorState extends ConsumerState<_Editor> {
                           onChanged: _busy
                               ? null
                               : (value) => setState(() {
+                                  final previous = _kind;
                                   _kind = value!;
+                                  if (previous == Kind.goal &&
+                                      _kind != Kind.goal &&
+                                      _date ==
+                                          DateTime(
+                                            widget.date.year,
+                                            widget.date.month + 1,
+                                            0,
+                                          )) {
+                                    _date = widget.date;
+                                  }
+                                  if (_kind == Kind.goal) {
+                                    _date = DateTime(
+                                      _date.year,
+                                      _date.month + 1,
+                                      0,
+                                    );
+                                  }
                                   if (_kind == Kind.habit && _days.isEmpty) {
                                     _days = {1, 2, 3, 4, 5, 6, 7};
                                   }
@@ -278,8 +302,26 @@ class _EditorState extends ConsumerState<_Editor> {
                             ? 'Введи название'
                             : null,
                       ),
+                      if (_kind == Kind.goal)
+                        TextFormField(
+                          controller: _target,
+                          enabled: !_busy,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'План на месяц · сколько раз',
+                          ),
+                          validator: (text) {
+                            final target = int.tryParse(text?.trim() ?? '');
+                            return target == null ||
+                                    target < 1 ||
+                                    target > maxGoalTarget
+                                ? 'Введи число от 1 до $maxGoalTarget'
+                                : null;
+                          },
+                        ),
                       DropdownButtonFormField<String>(
                         initialValue: _area,
+                        isExpanded: true,
                         decoration: const InputDecoration(labelText: 'Сфера'),
                         items: areas
                             .map(
@@ -298,13 +340,28 @@ class _EditorState extends ConsumerState<_Editor> {
                             ? null
                             : () async {
                                 final date = await pickDay(context, _date);
-                                if (date != null && mounted) {
+                                if (date != null && context.mounted) {
+                                  final record = widget.record;
+                                  if (record != null &&
+                                      record.kind == Kind.goal &&
+                                      record.sessions.isNotEmpty &&
+                                      !record.occursOn(date)) {
+                                    notify(
+                                      context,
+                                      'У цели уже есть отметки за этот месяц',
+                                    );
+                                    return;
+                                  }
                                   setState(() => _date = date);
                                 }
                               },
                         icon: const Icon(Icons.calendar_today_outlined),
                         label: Text(
-                          '${_kind == Kind.habit ? 'Начало' : 'Дата'} · ${shortDate(_date)} ${_date.year}',
+                          '${switch (_kind) {
+                            Kind.habit => 'Начало',
+                            Kind.goal => 'Срок',
+                            _ => 'Дата',
+                          }} · ${shortDate(_date)} ${_date.year}',
                         ),
                       ),
                       if (_kind == Kind.habit) ...[
@@ -434,8 +491,8 @@ class _EditorState extends ConsumerState<_Editor> {
                                 icon: const Icon(Icons.photo_outlined),
                                 label: Text(
                                   photo == null
-                                      ? 'Добавить фото'
-                                      : 'Заменить фото',
+                                      ? 'Выбрать фотообложку'
+                                      : 'Заменить обложку',
                                 ),
                               ),
                             ),
@@ -444,7 +501,7 @@ class _EditorState extends ConsumerState<_Editor> {
                                 onPressed: _busy
                                     ? null
                                     : () => setState(() => _photo = null),
-                                tooltip: 'Убрать фото',
+                                tooltip: 'Убрать обложку',
                                 icon: const Icon(Icons.close),
                               ),
                           ],

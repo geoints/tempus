@@ -1,10 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 
-import 'package:cryptography/cryptography.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -44,13 +43,12 @@ class TempusDatabase extends GeneratedDatabase {
     },
   );
 
-  Future<Snapshot> read({bool includePhotos = false}) => transaction(() async {
+  Future<Snapshot> read() => transaction(() async {
     final settings = await customSelect(
       'SELECT name, history FROM settings WHERE id = 1',
     ).getSingleOrNull();
-    final photoColumn = includePhotos ? 'photo' : 'NULL AS photo';
     final items = await customSelect(
-      'SELECT payload, photo IS NOT NULL AS has_photo, $photoColumn FROM records ORDER BY id',
+      'SELECT payload, photo IS NOT NULL AS has_photo FROM records ORDER BY id',
     ).get();
     return Snapshot(
       name: settings?.read<String>('name') ?? '',
@@ -61,7 +59,6 @@ class TempusDatabase extends GeneratedDatabase {
               {
                 ...jsonDecode(row.read<String>('payload'))
                     as Map<String, dynamic>,
-                'photo': row.readNullable<String>('photo'),
               },
               validatePhoto: false,
               hasPhoto: row.read<int>('has_photo') == 1,
@@ -96,14 +93,6 @@ class TempusDatabase extends GeneratedDatabase {
     'INSERT INTO settings (id, name, history) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, history = excluded.history',
     [name, history],
   );
-
-  Future<void> replace(Snapshot snapshot) => transaction(() async {
-    await customStatement('DELETE FROM records');
-    for (final item in snapshot.records) {
-      await put(item);
-    }
-    await settings(snapshot.name, snapshot.history);
-  });
 }
 
 final databaseProvider = Provider<TempusDatabase>((ref) {
@@ -111,6 +100,13 @@ final databaseProvider = Provider<TempusDatabase>((ref) {
   ref.onDispose(db.close);
   return db;
 });
+
+final archiveCoverProvider = FutureProvider.autoDispose.family<Uint8List?, int>(
+  (ref, id) async {
+    final encoded = await ref.watch(databaseProvider).photo(id);
+    return encoded == null ? null : compute(base64Decode, encoded);
+  },
+);
 
 final recordsProvider = AsyncNotifierProvider<RecordsController, Snapshot>(
   RecordsController.new,
@@ -143,22 +139,51 @@ class RecordsController extends AsyncNotifier<Snapshot> {
     return next;
   }
 
-  Future<void> save(Record record) => _apply((snapshot) {
+  Future<void> save(Record record) => _apply((snapshot) async {
     final nextId =
         snapshot.records.fold(0, (max, row) => row.id > max ? row.id : max) + 1;
     final updated = Record.fromJson({
       ...record.toJson(),
       if (record.id == 0) 'id': nextId,
+      if (record.kind == Kind.goal && record.id != 0)
+        'sessions': snapshot.records
+            .firstWhere((row) => row.id == record.id)
+            .sessions,
     });
-    return _db.put(updated);
+    await _db.put(updated);
+    if (!record.kind.isPlan && !record.kind.isMoney) {
+      ref.invalidate(archiveCoverProvider(updated.id));
+    }
+  });
+
+  Future<void> logGoal(int id, DateTime day) => _apply((snapshot) async {
+    final goal = snapshot.records.firstWhere((row) => row.id == id);
+    if (goal.kind != Kind.goal ||
+        !goal.occursOn(day) ||
+        dayOnly(day).isAfter(dayOnly(DateTime.now())) ||
+        goal.goalCount >= maxGoalTarget) {
+      return;
+    }
+    await _db.put(goal.withSessions([...goal.sessions, dayKey(day)]));
+  });
+
+  Future<void> undoGoal(int id, String date) => _apply((snapshot) async {
+    final goal = snapshot.records.firstWhere((row) => row.id == id);
+    if (goal.kind != Kind.goal || !goal.sessions.contains(date)) return;
+    final sessions = [...goal.sessions]..remove(date);
+    await _db.put(goal.withSessions(sessions));
   });
 
   Future<void> toggle(int id, DateTime day) => _apply((snapshot) {
     final record = snapshot.records.firstWhere((item) => item.id == id);
+    if (record.kind == Kind.goal) return Future.value();
     return _db.put(record.toggle(day));
   });
 
-  Future<void> remove(int id) => _apply((_) => _db.remove(id));
+  Future<void> remove(int id) => _apply((_) async {
+    await _db.remove(id);
+    ref.invalidate(archiveCoverProvider(id));
+  });
 
   Future<void> refreshReminders() {
     final next = _pending.then((_) async {
@@ -169,83 +194,6 @@ class RecordsController extends AsyncNotifier<Snapshot> {
     return next;
   }
 
-  Future<Snapshot> backupSnapshot() => _db.read(includePhotos: true);
-
-  Future<void> restore(Snapshot snapshot) =>
-      _apply((_) => _db.replace(snapshot));
-
   Future<void> profile(String name, DateTime history) =>
       _apply((_) => _db.settings(name, dayKey(history)), schedule: false);
-}
-
-class Backup {
-  static final _cipher = AesGcm.with256bits();
-  static final _kdf = Pbkdf2(
-    macAlgorithm: Hmac.sha256(),
-    iterations: 600000,
-    bits: 256,
-  );
-  static const maxBytes = 128 * 1024 * 1024;
-
-  static Future<List<int>> encode(Snapshot snapshot, String password) =>
-      Isolate.run(() => _encode(snapshot, password));
-
-  static Future<List<int>> _encode(Snapshot snapshot, String password) async {
-    final bytes = utf8.encode(jsonEncode(snapshot.toJson()));
-    if (password.isEmpty) return bytes;
-    final salt = _cipher.newNonce();
-    final key = await _kdf.deriveKeyFromPassword(
-      password: password,
-      nonce: salt,
-    );
-    final box = await _cipher.encrypt(bytes, secretKey: key);
-    return utf8.encode(
-      jsonEncode({
-        'format': 'tempus-aes256-gcm-v1',
-        'salt': base64Encode(salt),
-        'nonce': base64Encode(box.nonce),
-        'mac': base64Encode(box.mac.bytes),
-        'data': base64Encode(box.cipherText),
-      }),
-    );
-  }
-
-  static Map<String, dynamic> inspect(List<int> bytes) {
-    if (bytes.length > maxBytes) {
-      throw const FormatException('Копия превышает 128 МБ');
-    }
-    return jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-  }
-
-  static bool isEncrypted(Map<String, dynamic> json) =>
-      json['format'] == 'tempus-aes256-gcm-v1';
-
-  static Future<Snapshot> decode(Map<String, dynamic> json, String password) =>
-      Isolate.run(() => _decode(json, password));
-
-  static Future<Snapshot> _decode(
-    Map<String, dynamic> json,
-    String password,
-  ) async {
-    if (!isEncrypted(json)) return Snapshot.fromJson(json);
-    final salt = base64Decode(json['salt'] as String);
-    final nonce = base64Decode(json['nonce'] as String);
-    final mac = base64Decode(json['mac'] as String);
-    if (salt.length != 12 || nonce.length != 12 || mac.length != 16) {
-      throw const FormatException('Повреждённый заголовок резервной копии');
-    }
-    final key = await _kdf.deriveKeyFromPassword(
-      password: password,
-      nonce: salt,
-    );
-    final bytes = await _cipher.decrypt(
-      SecretBox(
-        base64Decode(json['data'] as String),
-        nonce: nonce,
-        mac: Mac(mac),
-      ),
-      secretKey: key,
-    );
-    return Snapshot.fromJson(inspect(bytes));
-  }
 }

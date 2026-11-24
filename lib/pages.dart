@@ -4,12 +4,15 @@ import 'package:fl_chart/fl_chart.dart';
 // ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'archive_covers.dart';
 import 'design.dart';
 import 'editor.dart';
 import 'export.dart';
+import 'goals.dart';
 import 'records.dart';
 import 'store.dart';
 
@@ -46,11 +49,13 @@ class RecordTile extends ConsumerWidget {
     required this.row,
     required this.day,
     this.showDate = false,
+    this.grouped = false,
     super.key,
   });
   final Record row;
   final DateTime day;
   final bool showDate;
+  final bool grouped;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -59,66 +64,70 @@ class RecordTile extends ConsumerWidget {
       if (showDate) shortDate(row.date),
       row.kind.label,
       if (row.area != 'Личное') row.area,
+      if (row.reminder case final int time)
+        if (row.kind.isPlan)
+          TimeOfDay(hour: time ~/ 60, minute: time % 60).format(context),
     ].join(' · ');
-    return Surface(
-      padding: EdgeInsets.zero,
-      child: ListTile(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        onTap: () =>
-            editRecord(context, kinds: [row.kind], date: day, record: row),
-        leading: row.kind.isPlan
-            ? IconButton(
-                tooltip: done ? 'Отменить выполнение' : 'Отметить выполненным',
-                icon: Icon(
+    final tile = ListTile(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      onTap: () =>
+          editRecord(context, kinds: [row.kind], date: day, record: row),
+      leading: row.kind.isPlan
+          ? IconButton(
+              tooltip: done ? 'Отменить выполнение' : 'Отметить выполненным',
+              icon: AnimatedSwitcher(
+                duration: motion(context, 190),
+                transitionBuilder: (child, animation) =>
+                    ScaleTransition(scale: animation, child: child),
+                child: Icon(
+                  key: ValueKey(done),
                   done
                       ? Icons.check_circle_rounded
                       : Icons.radio_button_unchecked,
                   color: done ? sage : bronze,
                 ),
-                onPressed: () async {
-                  try {
-                    await ref
-                        .read(recordsProvider.notifier)
-                        .toggle(row.id, day);
-                  } catch (_) {
-                    if (context.mounted) {
-                      notify(context, 'Не удалось обновить запись');
-                    }
-                  }
-                },
-              )
-            : Icon(kindIcon(row.kind), color: bronze),
-        title: Text(
-          row.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: done ? muted : paper,
-            decoration: done ? TextDecoration.lineThrough : null,
-          ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(detail, style: const TextStyle(color: muted, fontSize: 12)),
-            if (showDate && row.notes.isNotEmpty)
-              Text(row.notes, maxLines: 1, overflow: TextOverflow.ellipsis),
-          ],
-        ),
-        trailing: row.kind.isMoney
-            ? Text(
-                '${row.kind == Kind.expense ? '−' : '+'}${money(row.amount)}',
-                style: TextStyle(
-                  color: row.kind == Kind.expense ? bronze : sage,
-                ),
-              )
-            : Icon(
-                row.hasPhoto ? Icons.image_outlined : Icons.chevron_right,
-                size: 19,
-                color: muted,
               ),
+              onPressed: () async {
+                try {
+                  await ref.read(recordsProvider.notifier).toggle(row.id, day);
+                  HapticFeedback.selectionClick();
+                } catch (_) {
+                  if (context.mounted) {
+                    notify(context, 'Не удалось обновить запись');
+                  }
+                }
+              },
+            )
+          : Icon(kindIcon(row.kind), color: bronze),
+      title: Text(
+        row.title,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: done ? muted : paper,
+          decoration: done ? TextDecoration.lineThrough : null,
+        ),
       ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(detail, style: const TextStyle(color: muted, fontSize: 12)),
+          if (showDate && row.notes.isNotEmpty)
+            Text(row.notes, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ],
+      ),
+      trailing: row.kind.isMoney
+          ? Text(
+              '${row.kind == Kind.expense ? '−' : '+'}${money(row.amount)}',
+              style: TextStyle(color: row.kind == Kind.expense ? bronze : sage),
+            )
+          : Icon(
+              row.hasPhoto ? Icons.image_outlined : Icons.chevron_right,
+              size: 19,
+              color: muted,
+            ),
     );
+    return grouped ? tile : Surface(padding: EdgeInsets.zero, child: tile);
   }
 }
 
@@ -189,41 +198,61 @@ class _TodayPageState extends State<TodayPage> {
               icon: const Icon(Icons.calendar_month_outlined),
             ),
           ),
-          const Chronograph(),
+          const PalaceCard(),
           Surface(
+            padding: EdgeInsets.zero,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SectionTitle(
-                  'План на сегодня',
-                  action: Text(
-                    '$done из ${plans.length}',
-                    style: const TextStyle(
-                      color: bronze,
-                      fontWeight: FontWeight.w600,
-                    ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(15, 8, 9, 10),
+                  child: Column(
+                    children: [
+                      SectionTitle(
+                        'План на сегодня',
+                        action: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AnimatedValue(
+                              '$done из ${plans.length}',
+                              style: const TextStyle(
+                                color: bronze,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              onPressed: () => editRecord(
+                                context,
+                                kinds: planKinds,
+                                date: today,
+                              ),
+                              icon: const Icon(Icons.add),
+                              tooltip: 'Добавить в план',
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      ProgressTrack(plans.isEmpty ? 0 : done / plans.length),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                ProgressTrack(plans.isEmpty ? 0 : done / plans.length),
+                if (plans.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(15, 3, 15, 15),
+                    child: Text(
+                      'Добавь задачу или привычку на сегодня.',
+                      style: TextStyle(color: muted),
+                    ),
+                  ),
+                for (final row in plans) ...[
+                  const Divider(),
+                  RecordTile(row: row, day: today, grouped: true),
+                ],
               ],
             ),
           ),
-          SectionTitle(
-            'Задачи и привычки',
-            action: IconButton.filled(
-              onPressed: () =>
-                  editRecord(context, kinds: planKinds, date: today),
-              icon: const Icon(Icons.add),
-              tooltip: 'Добавить в план',
-            ),
-          ),
-          if (plans.isEmpty)
-            const EmptyCard(
-              'Добавь задачу или привычку на сегодня.',
-              icon: Icons.checklist_rounded,
-            ),
-          for (final row in plans) RecordTile(row: row, day: today),
           OutlinedButton.icon(
             onPressed: () =>
                 editRecord(context, kinds: const [Kind.journal], date: today),
@@ -404,8 +433,11 @@ class _PlanPageState extends State<PlanPage> {
             action: IconButton(
               tooltip: 'Добавить цель',
               icon: const Icon(Icons.add),
-              onPressed: () =>
-                  editRecord(context, kinds: const [Kind.goal], date: day),
+              onPressed: () => editRecord(
+                context,
+                kinds: const [Kind.goal],
+                date: DateTime(day.year, day.month + 1, 0),
+              ),
             ),
           ),
           if (goals.isEmpty)
@@ -413,8 +445,7 @@ class _PlanPageState extends State<PlanPage> {
               'Месячные цели пока не добавлены.',
               icon: Icons.flag_outlined,
             ),
-          for (final row in goals)
-            RecordTile(row: row, day: day, showDate: true),
+          if (goals.isNotEmpty) GoalGrid(goals.toList()),
         ],
       );
     },
@@ -437,7 +468,8 @@ class ProgressPage extends StatefulWidget {
 }
 
 class _ProgressPageState extends State<ProgressPage> {
-  Period period = Period.week;
+  Period period = Period.month;
+  String? selectedArea;
   DateTime cursor = dayOnly(DateTime.now());
   bool exporting = false;
 
@@ -454,11 +486,12 @@ class _ProgressPageState extends State<ProgressPage> {
   };
 
   void step(int direction) => setState(() {
-    cursor = switch (period) {
+    final next = switch (period) {
       Period.week => shiftDay(cursor, direction * 7),
       Period.month => DateTime(cursor.year, cursor.month + direction),
       Period.year => DateTime(cursor.year + direction),
     };
+    if (next.year >= 1900 && next.year <= 2100) cursor = next;
   });
 
   @override
@@ -480,6 +513,17 @@ class _ProgressPageState extends State<ProgressPage> {
         historyStart,
         end,
       );
+      final goals = snapshot.records
+          .where((row) => row.kind == Kind.goal && row.occursOn(start))
+          .toList();
+      final chartRows = selectedArea == null
+          ? snapshot.records
+          : snapshot.records.where((row) => row.area == selectedArea).toList();
+      final graphSummary = ProgressSummary.between(
+        chartRows,
+        historyStart,
+        end,
+      );
       final groups = {
         for (final area in areas)
           area: ProgressSummary.between(
@@ -490,7 +534,7 @@ class _ProgressPageState extends State<ProgressPage> {
       };
       return PageList(
         children: [
-          const PageHeading('Прогресс'),
+          PageHeading(period == Period.year ? 'Годовой обзор' : 'Прогресс'),
           Center(
             child: SegmentedButton<Period>(
               segments: [
@@ -499,8 +543,10 @@ class _ProgressPageState extends State<ProgressPage> {
               ],
               selected: {period},
               showSelectedIcon: false,
-              onSelectionChanged: (change) =>
-                  setState(() => period = change.single),
+              onSelectionChanged: (change) => setState(() {
+                period = change.single;
+                selectedArea = null;
+              }),
             ),
           ),
           Row(
@@ -511,9 +557,8 @@ class _ProgressPageState extends State<ProgressPage> {
                 icon: const Icon(Icons.chevron_left),
               ),
               Expanded(
-                child: Text(
+                child: AnimatedValue(
                   title,
-                  textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontFamily: 'TempusSerif',
                     fontSize: 17,
@@ -527,57 +572,119 @@ class _ProgressPageState extends State<ProgressPage> {
               ),
             ],
           ),
-          Surface(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SectionTitle(
-                  'План и факт',
-                  action: Text(
-                    '${summary.completed} / ${summary.planned}',
-                    style: const TextStyle(color: bronze),
-                  ),
+          _PlanFact(summary),
+          if (period == Period.month) ...[
+            SectionTitle(
+              'Цели месяца',
+              action: IconButton.filledTonal(
+                tooltip: 'Добавить цель',
+                icon: const Icon(Icons.add),
+                onPressed: () => editRecord(
+                  context,
+                  kinds: const [Kind.goal],
+                  date: DateTime(start.year, start.month + 1, 0),
                 ),
-                const SizedBox(height: 12),
-                ProgressTrack(summary.ratio),
-                const SizedBox(height: 10),
-                Text(
-                  'Выполнено ${(summary.ratio * 100).round()}%',
-                  style: const TextStyle(color: muted),
-                ),
-              ],
+              ),
             ),
-          ),
-          if (summary.planned != 0)
+            if (goals.isEmpty)
+              const EmptyCard(
+                'Добавь цель и укажи, сколько раз хочешь её выполнить.',
+                icon: Icons.flag_outlined,
+              )
+            else ...[
+              if (start.year == DateTime.now().year &&
+                  start.month == DateTime.now().month)
+                const Text(
+                  'Коснись карточки, чтобы добавить одну отметку.',
+                  style: TextStyle(color: muted, fontSize: 12),
+                ),
+              GoalGrid(goals),
+            ],
+          ],
+          if (summary.planned > 0 || summary.completed > 0)
             Surface(
-              child: _PeriodChart(
-                rows: snapshot.records,
-                period: period,
-                start: start,
-                end: end,
-                history: historyStart,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SectionTitle(
+                    'Динамика',
+                    action: PopupMenuButton<String>(
+                      tooltip: 'Фильтр по сфере',
+                      icon: Icon(
+                        Icons.tune_rounded,
+                        color: selectedArea == null ? muted : bronze,
+                      ),
+                      initialValue: selectedArea ?? '',
+                      onSelected: (value) => setState(
+                        () => selectedArea = value.isEmpty ? null : value,
+                      ),
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(
+                          value: '',
+                          child: Text('Все сферы'),
+                        ),
+                        for (final area in areas)
+                          PopupMenuItem(value: area, child: Text(area)),
+                      ],
+                    ),
+                  ),
+                  if (selectedArea != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 9),
+                      child: Text(
+                        selectedArea!,
+                        style: const TextStyle(color: bronze),
+                      ),
+                    ),
+                  _PeriodChart(
+                    rows: chartRows,
+                    period: period,
+                    start: start,
+                    end: end,
+                    history: historyStart,
+                  ),
+                  if (selectedArea != null &&
+                      graphSummary.planned == 0 &&
+                      graphSummary.completed == 0)
+                    const Text(
+                      'В этой сфере пока нет записей за период.',
+                      style: TextStyle(color: muted),
+                    ),
+                ],
               ),
             ),
           const SectionTitle('Сферы'),
-          if (!groups.values.any((item) => item.planned > 0))
-            const EmptyCard('В этом периоде нет запланированных дел.'),
+          if (!groups.values.any(
+            (item) => item.planned > 0 || item.completed > 0,
+          ))
+            const EmptyCard(
+              'Здесь появятся данные по твоим сферам.',
+              icon: Icons.insights_outlined,
+            ),
           for (final entry in groups.entries.where(
-            (entry) => entry.value.planned > 0,
+            (entry) => entry.value.planned > 0 || entry.value.completed > 0,
           ))
             Surface(
-              child: Column(
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(child: Text(entry.key)),
-                      Text(
-                        '${entry.value.completed} / ${entry.value.planned}',
-                        style: const TextStyle(color: muted),
-                      ),
-                    ],
+                  Icon(areaIcon(entry.key), color: bronze, size: 19),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(entry.key),
+                        const SizedBox(height: 6),
+                        ProgressTrack(entry.value.ratio),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 9),
-                  ProgressTrack(entry.value.ratio),
+                  const SizedBox(width: 12),
+                  AnimatedValue(
+                    '${entry.value.completed} / ${entry.value.planned}',
+                    style: const TextStyle(color: muted),
+                  ),
                 ],
               ),
             ),
@@ -641,6 +748,145 @@ class _ProgressPageState extends State<ProgressPage> {
   );
 }
 
+class _PlanFact extends StatelessWidget {
+  const _PlanFact(this.summary);
+  final ProgressSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = (summary.planned - summary.completed).clamp(
+      0,
+      summary.planned,
+    );
+    final percent = summary.planned == 0
+        ? '—'
+        : '${(summary.ratio * 100).round()}%';
+    const number = TextStyle(
+      fontFamily: 'TempusSerif',
+      color: paper,
+      fontSize: 23,
+    );
+    return Surface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionTitle(
+            'План и факт',
+            action: IconButton(
+              tooltip: 'Как считается прогресс',
+              icon: const Icon(Icons.info_outline, color: muted, size: 19),
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('План и факт'),
+                  content: const Text(
+                    'План включает задачи, повторы привычек и количество повторов по целям на дату срока. '
+                    'Выполненные задачи и привычки учитываются на запланированную дату, а отметки по целям — на дату выполнения.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Понятно'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              SizedBox.square(
+                dimension: 111,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Positioned.fill(
+                      child: TweenAnimationBuilder<double>(
+                        duration: motion(context, 470),
+                        tween: Tween(end: summary.ratio.clamp(0, 1).toDouble()),
+                        curve: Curves.easeOutCubic,
+                        builder: (_, value, _) => CircularProgressIndicator(
+                          value: value,
+                          strokeWidth: 8,
+                          strokeCap: StrokeCap.round,
+                          backgroundColor: border,
+                          color: bronze,
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(11),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: AnimatedValue(
+                          percent,
+                          style: const TextStyle(
+                            color: paper,
+                            fontSize: 27,
+                            fontFamily: 'TempusSerif',
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 19),
+              Expanded(
+                child: Column(
+                  children: [
+                    for (final (label, value, color) in [
+                      ('План', summary.planned, muted),
+                      ('Факт', summary.completed, bronze),
+                      ('До плана', remaining, sage),
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: color,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                label,
+                                style: const TextStyle(color: muted),
+                              ),
+                            ),
+                            Flexible(
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: AnimatedValue('$value', style: number),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (summary.planned == 0 && summary.completed == 0) ...[
+            const SizedBox(height: 14),
+            const Text(
+              'За этот период ещё нет плана и отметок.',
+              style: TextStyle(color: muted, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _PeriodChart extends StatelessWidget {
   const _PeriodChart({
     required this.rows,
@@ -669,7 +915,10 @@ class _PeriodChart extends StatelessWidget {
         switch (period) {
           Period.week => DateFormat('EE', 'ru').format(day),
           Period.month => '${day.day}',
-          Period.year => '${day.month}',
+          Period.year => DateFormat(
+            'MMM',
+            'ru',
+          ).format(day).replaceAll('.', ''),
         },
         ProgressSummary.between(
           rows,
@@ -678,16 +927,33 @@ class _PeriodChart extends StatelessWidget {
         ),
       ));
     }
-    final max = bars.fold<int>(
-      1,
-      (max, entry) => entry.$2.planned > max ? entry.$2.planned : max,
-    );
+    var max = 1;
+    for (final (_, stats) in bars) {
+      if (stats.planned > max) max = stats.planned;
+      if (stats.completed > max) max = stats.completed;
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'План и выполнение по времени',
-          style: TextStyle(color: muted),
+        Wrap(
+          spacing: 15,
+          children: [
+            for (final (label, color) in [
+              ('План', const Color(0xff705039)),
+              ('Факт', bronze),
+            ])
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.circle, size: 8, color: color),
+                  const SizedBox(width: 5),
+                  Text(
+                    label,
+                    style: const TextStyle(color: muted, fontSize: 11),
+                  ),
+                ],
+              ),
+          ],
         ),
         const SizedBox(height: 14),
         SizedBox(
@@ -708,8 +974,11 @@ class _PeriodChart extends StatelessWidget {
                     getTitlesWidget: (value, _) => Padding(
                       padding: const EdgeInsets.only(top: 6),
                       child: Text(
-                        bars[value.toInt()].$1,
+                        value.toInt() >= 0 && value.toInt() < bars.length
+                            ? bars[value.toInt()].$1
+                            : '',
                         style: const TextStyle(fontSize: 10, color: muted),
+                        textScaler: TextScaler.noScaling,
                       ),
                     ),
                   ),
@@ -717,8 +986,10 @@ class _PeriodChart extends StatelessWidget {
               ),
               barTouchData: BarTouchData(
                 touchTooltipData: BarTouchTooltipData(
+                  fitInsideHorizontally: true,
+                  fitInsideVertically: true,
                   getTooltipItem: (group, _, _, _) => BarTooltipItem(
-                    '${bars[group.x].$2.completed} из ${bars[group.x].$2.planned}',
+                    '${bars[group.x].$1} · План ${bars[group.x].$2.planned} · Факт ${bars[group.x].$2.completed}',
                     const TextStyle(color: paper),
                   ),
                 ),
@@ -727,18 +998,18 @@ class _PeriodChart extends StatelessWidget {
                 for (var i = 0; i < bars.length; i++)
                   BarChartGroupData(
                     x: i,
+                    barsSpace: 3,
                     barRods: [
-                      BarChartRodData(
-                        toY: bars[i].$2.completed.toDouble(),
-                        color: bronze,
-                        width: period == Period.year ? 10 : 17,
-                        borderRadius: BorderRadius.circular(4),
-                        backDrawRodData: BackgroundBarChartRodData(
-                          show: true,
-                          toY: bars[i].$2.planned.toDouble(),
-                          color: border,
+                      for (final (height, color) in [
+                        (bars[i].$2.planned, const Color(0xff705039)),
+                        (bars[i].$2.completed, bronze),
+                      ])
+                        BarChartRodData(
+                          toY: height.toDouble(),
+                          color: color,
+                          width: period == Period.year ? 6 : 10,
+                          borderRadius: BorderRadius.circular(3),
                         ),
-                      ),
                     ],
                   ),
               ],
@@ -790,6 +1061,13 @@ class _ArchivePageState extends State<ArchivePage> {
               final date = b.date.compareTo(a.date);
               return date == 0 ? b.id.compareTo(a.id) : date;
             });
+      final byMonth = <DateTime, List<Record>>{};
+      if (!finance) {
+        for (final row in items) {
+          final collection = DateTime(row.date.year, row.date.month);
+          byMonth.putIfAbsent(collection, () => []).add(row);
+        }
+      }
       final totals = ProgressSummary.between(
         all.toList(),
         month,
@@ -898,32 +1176,40 @@ class _ArchivePageState extends State<ArchivePage> {
               onChanged: (value) =>
                   setState(() => query = value.trim().toLowerCase()),
             ),
-            Wrap(
-              spacing: 7,
-              runSpacing: 3,
-              children: [
-                ChoiceChip(
-                  label: const Text('Все'),
-                  selected: filter == null,
-                  onSelected: (_) => setState(() => filter = null),
-                ),
-                for (final kind in archiveKinds)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                spacing: 7,
+                children: [
                   ChoiceChip(
-                    label: Text(kind.label),
-                    selected: filter == kind,
-                    onSelected: (_) => setState(() => filter = kind),
+                    label: const Text('Все'),
+                    selected: filter == null,
+                    onSelected: (_) => setState(() => filter = null),
                   ),
-              ],
+                  for (final kind in archiveKinds)
+                    ChoiceChip(
+                      label: Text(kind.label),
+                      selected: filter == kind,
+                      onSelected: (_) => setState(() => filter = kind),
+                    ),
+                ],
+              ),
             ),
           ],
           if (items.isEmpty)
             EmptyCard(
               finance
                   ? 'В этом месяце нет операций.'
-                  : 'Записи пока не найдены.',
+                  : query.isNotEmpty || filter != null
+                  ? 'Записи пока не найдены.'
+                  : 'Добавь первую запись и выбери фотообложку.',
             ),
-          for (final row in items)
-            RecordTile(row: row, day: row.date, showDate: true),
+          if (finance)
+            for (final row in items)
+              RecordTile(row: row, day: row.date, showDate: true)
+          else
+            for (final entry in byMonth.entries)
+              ArchiveMonth(entry.key, entry.value, key: ValueKey(entry.key)),
         ],
       );
     },
