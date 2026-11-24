@@ -83,27 +83,6 @@ class _EditorState extends ConsumerState<_Editor> {
   late int? _reminder = widget.record?.reminder;
   String? _photo;
   bool _busy = false;
-  bool _photoLoading = false;
-  bool _photoFailed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.record?.hasPhoto == true) _loadPhoto();
-  }
-
-  Future<void> _loadPhoto() async {
-    _photoLoading = true;
-    try {
-      final value = await ref.read(databaseProvider).photo(widget.record!.id);
-      if (mounted) setState(() => _photo = value);
-    } catch (_) {
-      if (mounted) setState(() => _photoFailed = true);
-    } finally {
-      if (mounted) setState(() => _photoLoading = false);
-    }
-  }
-
   @override
   void dispose() {
     _title.dispose();
@@ -125,10 +104,7 @@ class _EditorState extends ConsumerState<_Editor> {
   }
 
   Future<void> _save() async {
-    if (_busy ||
-        _photoLoading ||
-        _photoFailed ||
-        !_form.currentState!.validate()) {
+    if (_busy || !_form.currentState!.validate()) {
       return;
     }
     if (_kind == Kind.habit && _days.isEmpty) {
@@ -538,12 +514,7 @@ class _EditorState extends ConsumerState<_Editor> {
                               ),
                           ],
                         ),
-                      if (!_kind.isPlan && !_kind.isMoney) ...[
-                        if (_photoLoading) const LinearProgressIndicator(),
-                        if (_photoFailed)
-                          const EmptyCard(
-                            'Фото не удалось загрузить. Открой запись повторно.',
-                          ),
+                      if (_kind.isArchive && widget.record == null) ...[
                         if (photo != null)
                           ClipRRect(
                             borderRadius: BorderRadius.circular(13),
@@ -561,10 +532,7 @@ class _EditorState extends ConsumerState<_Editor> {
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed:
-                                    _busy || _photoLoading || _photoFailed
-                                    ? null
-                                    : _pickPhoto,
+                                onPressed: _busy ? null : _pickPhoto,
                                 icon: const Icon(Icons.photo_outlined),
                                 label: Text(
                                   photo == null
@@ -585,9 +553,7 @@ class _EditorState extends ConsumerState<_Editor> {
                         ),
                       ],
                       FilledButton.icon(
-                        onPressed: _busy || _photoLoading || _photoFailed
-                            ? null
-                            : _save,
+                        onPressed: _busy ? null : _save,
                         icon: _busy
                             ? const SizedBox.square(
                                 dimension: 16,

@@ -3,12 +3,14 @@ import 'dart:convert';
 import 'package:drift/native.dart';
 // ignore: deprecated_member_use
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:tempus/design.dart';
 import 'package:tempus/export.dart';
 import 'package:tempus/main.dart';
+import 'package:tempus/photography.dart';
 import 'package:tempus/records.dart';
 import 'package:tempus/store.dart';
 
@@ -102,6 +104,68 @@ void main() {
       expect(await db.photo(2), image);
     },
   );
+
+  test(
+    'Обложка из базы v1 переносится в альбом и остаётся редактируемой',
+    () async {
+      final original = Uint8List.fromList([10, 20, 30]);
+      final row = Record(
+        id: 7,
+        kind: Kind.theatre,
+        title: 'Походы',
+        date: DateTime(2026, 9, 4),
+      );
+      final db = TempusDatabase(
+        NativeDatabase.memory(
+          setup: (db) {
+            db.execute(
+              'CREATE TABLE records (id INTEGER PRIMARY KEY, payload TEXT NOT NULL, photo TEXT)',
+            );
+            db.execute(
+              'CREATE TABLE settings (id INTEGER PRIMARY KEY, name TEXT NOT NULL, history TEXT NOT NULL)',
+            );
+            db.execute(
+              'INSERT INTO records (id, payload, photo) VALUES (?, ?, ?)',
+              [row.id, jsonEncode(row.toJson()), base64Encode(original)],
+            );
+            db.execute('PRAGMA user_version = 1');
+          },
+        ),
+      );
+      addTearDown(db.close);
+      expect((await db.read()).records.single.hasPhoto, isTrue);
+      final first = (await db.album(7)).single;
+      expect(first.isCover, isTrue);
+      expect(await db.albumImage(first.id), original);
+      expect(await db.photo(7), isNull);
+      final secondBytes = Uint8List.fromList([70, 71, 72]);
+      final thumb = Uint8List.fromList([77]);
+      await db.addPhoto(7, AlbumPhotoData(secondBytes, thumb));
+      final second = (await db.album(7)).last;
+      expect(second.isCover, isFalse);
+      await db.setCover(7, second.id);
+      expect(await db.cover(7), thumb);
+      expect(await db.albumImage(second.id), secondBytes);
+      await db.put(row);
+      expect((await db.album(7)).length, 2);
+      await db.removePhoto(7, second.id);
+      expect((await db.album(7)).single.isCover, isTrue);
+      await db.remove(7);
+      expect(await db.album(7), isEmpty);
+      expect(await db.albumImage(first.id), isNull);
+    },
+  );
+
+  test('Пресет оригинала нейтрален, у JPEG определяется размер', () async {
+    expect(FilmLook.original.preview(.8), FilmLook.chestnut.preview(0));
+    expect(FilmLook.bronze.preview(.8), isNot(FilmLook.chestnut.preview(.8)));
+    final asset = await rootBundle.load('assets/tempus-palace.jpg');
+    final dimensions = jpegDimensions(
+      asset.buffer.asUint8List(asset.offsetInBytes, asset.lengthInBytes),
+    );
+    expect(dimensions, (1440, 960));
+    expect(jpegDimensions(Uint8List.fromList([255, 216, 255, 192, 0])), isNull);
+  });
 
   test('Цель добавляет план по сроку и считает по дате каждой отметки', () {
     final goal = Record(
@@ -230,6 +294,14 @@ void main() {
     await tester.tap(find.widgetWithText(NavigationDestination, 'Летопись'));
     await tester.pumpAndSettle();
     expect(find.text('Вечер в театре'), findsOneWidget);
+    expect(find.byTooltip('Камера TEMPUS'), findsOneWidget);
+    await tester.tap(find.text('Вечер в театре'));
+    await tester.pumpAndSettle();
+    expect(find.text('Фотоальбом'), findsOneWidget);
+    expect(find.text('Добавить фото'), findsOneWidget);
+    expect(find.text('Снять'), findsOneWidget);
+    Navigator.of(tester.element(find.text('Фотоальбом'))).pop();
+    await tester.pumpAndSettle();
     expect(find.text('Дневник'), findsNothing);
     await tester.tap(find.widgetWithText(NavigationDestination, 'Прогресс'));
     await tester.pumpAndSettle();

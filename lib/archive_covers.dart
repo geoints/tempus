@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'design.dart';
-import 'editor.dart';
+import 'photo_album.dart';
 import 'records.dart';
 import 'store.dart';
 
@@ -84,8 +84,7 @@ class _CoverTile extends ConsumerWidget {
     return Surface(
       padding: EdgeInsets.zero,
       child: InkWell(
-        onTap: () =>
-            editRecord(context, record: row, kinds: [row.kind], date: row.date),
+        onTap: () => openPhotoAlbum(context, row.id),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
