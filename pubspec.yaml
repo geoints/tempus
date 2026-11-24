@@ -1,0 +1,42 @@
+name: tempus
+description: Личный офлайн-планировщик и летопись.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+  drift: ^2.30.0
+  go_router: ^17.0.0
+  fl_chart: ^1.1.1
+  flutter_local_notifications: ^20.0.0
+  flutter_timezone: ^5.0.0
+  timezone: ^0.10.1
+  path_provider: ^2.1.5
+  file_picker: ^10.3.0
+  cryptography: ^2.9.0
+  pdf: 3.12.0
+  intl: any
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/DejaVu-LICENSE.txt
+  fonts:
+    - family: TempusSerif
+      fonts:
+        - asset: assets/TempusSerif.ttf
+
+dependency_overrides:
+  image: 4.8.0
