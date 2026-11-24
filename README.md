@@ -11,7 +11,7 @@
 
 ## Запуск и сборка
 
-Нужны Flutter 3.50.1, JDK 17 или 21 и Android SDK 36. Минимальная версия устройства — Android 7.0 (API 24).
+Нужны Flutter 3.50.1, JDK 17 или 21 и платформы Android SDK 35 и 36. Минимальная версия устройства — Android 7.0 (API 24).
 
 ```sh
 flutter pub get
